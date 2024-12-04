@@ -1,16 +1,39 @@
-﻿using System;
-using System.Linq;
-using System.Text;
-using System.Windows.Forms;
+﻿// *****************************************************************************
+// Práctica 07 - Cliente
+// Carlos Benavides
+// Fecha de realización: 27/12/2024
+// Fecha de entrega: 04/12/2024
+//
+// Resultados:
+// * El cliente permite interactuar con el servidor para validar accesos,
+//   consultar información de placas y obtener estadísticas de las solicitudes
+//   realizadas.
+// * La interfaz gráfica está diseñada para mostrar mensajes claros sobre los resultados
+//   de las operaciones realizadas o para informar de algún error ocurrido de la solicitud.
+//
+// Conclusión:
+// * En conclusión, la estructura del cliente basada en la clase Protocolo, simplifica el manejo de
+//   solicitudes y respuestas, mejorando la modularidad del sistema y el entendimiento del código.
+//
+// Recomendaciones:
+// * Implementar más validaciones en los campos ingresados por el usuario para evitar errores.
+// * Considerar añadir mensajes más descriptivos en caso de error para mejorar la experiencia del usuario.
+// *****************************************************************************
+
+
+using System;
 using System.Net.Sockets;
+using System.Windows.Forms;
 using Protocolo;
 
 namespace Cliente
 {
     public partial class FrmValidador : Form
     {
-        private TcpClient remoto;
-        private NetworkStream flujo;
+        // Variables para manejar la conexión al servidor
+        private TcpClient remoto; // Cliente TCP para conectarse al servidor
+        private NetworkStream flujo; // Flujo de datos entre cliente y servidor
+        private Protocolos protocolo; // Instancia para manejar operaciones del protocolo
 
         public FrmValidador()
         {
@@ -21,231 +44,99 @@ namespace Cliente
         {
             try
             {
-                remoto = new TcpClient("127.0.0.1", 8080);
+                // Establece la conexión al servidor en el puerto 5000
+                remoto = new TcpClient("127.0.0.1", 5000);
                 flujo = remoto.GetStream();
+                protocolo = new Protocolos(flujo);
+
+                // Desactiva la sección de consulta hasta que se valide el acceso
+                panPlaca.Enabled = false;
             }
             catch (SocketException ex)
             {
-                MessageBox.Show("No se puedo establecer conexión " + ex.Message,
-                    "ERROR");
+                // Muestra un mensaje de error si la conexión falla
+                MessageBox.Show("No se pudo establecer conexión: " + ex.Message, "ERROR");
             }
-            finally 
-            {
-                flujo?.Close();
-                remoto?.Close();
-            }
-
-            panPlaca.Enabled = false;
-            chkLunes.Enabled = false;
-            chkMartes.Enabled = false;
-            chkMiercoles.Enabled = false;
-            chkJueves.Enabled = false;
-            chkViernes.Enabled = false;
-            chkDomingo.Enabled = false;
-            chkSabado.Enabled = false;
         }
 
         private void btnIniciar_Click(object sender, EventArgs e)
         {
             string usuario = txtUsuario.Text;
             string contraseña = txtPassword.Text;
-            if (usuario == "" || contraseña == "")
+
+            // Valida que los campos no estén vacíos
+            if (string.IsNullOrEmpty(usuario) || string.IsNullOrEmpty(contraseña))
             {
-                MessageBox.Show("Se requiere el ingreso de usuario y contraseña",
-                    "ADVERTENCIA");
+                MessageBox.Show("Se requiere el ingreso de usuario y contraseña", "ADVERTENCIA");
                 return;
             }
 
-            Pedido pedido = new Pedido
-            {
-                Comando = "INGRESO",
-                Parametros = new[] { usuario, contraseña }
-            };
-            
-            Respuesta respuesta = HazOperacion(pedido);
-            if (respuesta == null)
-            {
-                MessageBox.Show("Hubo un error", "ERROR");
-                return;
-            }
-
-            if (respuesta.Estado == "OK" && respuesta.Mensaje == "ACCESO_CONCEDIDO")
-            {
-                panPlaca.Enabled = true;
-                panLogin.Enabled = false;
-                MessageBox.Show("Acceso concedido", "INFORMACIÓN");
-                txtModelo.Focus();
-            }
-            else if (respuesta.Estado == "NOK" && respuesta.Mensaje == "ACCESO_NEGADO")
-            {
-                panPlaca.Enabled = false;
-                panLogin.Enabled = true;
-                MessageBox.Show("No se pudo ingresar, revise credenciales",
-                    "ERROR");
-                txtUsuario.Focus();
-            }
-        }
-
-        private Respuesta HazOperacion(Pedido pedido)
-        {
-            if(flujo == null)
-            {
-                MessageBox.Show("No hay conexión", "ERROR");
-                return null;
-            }
             try
             {
-                byte[] bufferTx = Encoding.UTF8.GetBytes(
-                    pedido.Comando + " " + string.Join(" ", pedido.Parametros));
-                
-                flujo.Write(bufferTx, 0, bufferTx.Length);
+                // Envía el comando de ingreso al servidor
+                var respuesta = protocolo.HazOperacion("INGRESO", new[] { usuario, contraseña });
 
-                byte[] bufferRx = new byte[1024];
-                
-                int bytesRx = flujo.Read(bufferRx, 0, bufferRx.Length);
-                
-                string mensaje = Encoding.UTF8.GetString(bufferRx, 0, bytesRx);
-                
-                var partes = mensaje.Split(' ');
-                
-                return new Respuesta
+                if (respuesta.Estado == "OK" && respuesta.Mensaje == "ACCESO_CONCEDIDO")
                 {
-                    Estado = partes[0],
-                    Mensaje = string.Join(" ", partes.Skip(1).ToArray())
-                };
+                    // Habilita la sección de consulta si el acceso es concedido
+                    panPlaca.Enabled = true;
+                    panLogin.Enabled = false;
+                    txtModelo.Focus();
+
+                    MessageBox.Show("Acceso concedido", "INFORMACIÓN");
+                }
+                else
+                {
+                    // Muestra un mensaje si el acceso es denegado
+                    MessageBox.Show("No se pudo ingresar, revise credenciales", "ERROR");
+                }
             }
-            catch (SocketException ex)
+            catch (Exception ex)
             {
-                MessageBox.Show("Error al intentar transmitir " + ex.Message,
-                    "ERROR");
+                // Manejo de errores generales durante la operación
+                MessageBox.Show("Error: " + ex.Message, "ERROR");
             }
-            finally 
-            {
-                flujo?.Close();
-                remoto?.Close();
-            }
-            return null;
         }
 
         private void btnConsultar_Click(object sender, EventArgs e)
         {
-            string modelo = txtModelo.Text;
-            string marca = txtMarca.Text;
-            string placa = txtPlaca.Text;
-            
-            Pedido pedido = new Pedido
+            try
             {
-                Comando = "CALCULO",
-                Parametros = new[] { modelo, marca, placa }
-            };
-            
-            Respuesta respuesta = HazOperacion(pedido);
-            if (respuesta == null)
-            {
-                MessageBox.Show("Hubo un error", "ERROR");
-                return;
-            }
+                // Envía el comando de cálculo al servidor
+                var respuesta = protocolo.HazOperacion("CALCULO", new[] { txtModelo.Text, txtMarca.Text, txtPlaca.Text });
 
-            if (respuesta.Estado == "NOK")
-            {
-                MessageBox.Show("Error en la solicitud.", "ERROR");
-                chkLunes.Checked = false;
-                chkMartes.Checked = false;
-                chkMiercoles.Checked = false;
-                chkJueves.Checked = false;
-                chkViernes.Checked = false;
+                // Muestra la respuesta del servidor
+                MessageBox.Show("Respuesta recibida: " + respuesta.Mensaje, "INFORMACIÓN");
             }
-            else
+            catch (Exception ex)
             {
-                var partes = respuesta.Mensaje.Split(' ');
-                MessageBox.Show("Se recibió: " + respuesta.Mensaje,
-                    "INFORMACIÓN");
-                byte resultado = Byte.Parse(partes[1]);
-                switch (resultado)
-                {
-                    case 0b00100000:
-                        chkLunes.Checked = true;
-                        chkMartes.Checked = false;
-                        chkMiercoles.Checked = false;
-                        chkJueves.Checked = false;
-                        chkViernes.Checked = false;
-                        break;
-                    case 0b00010000:
-                        chkMartes.Checked = true;
-                        chkLunes.Checked = false;
-                        chkMiercoles.Checked = false;
-                        chkJueves.Checked = false;
-                        chkViernes.Checked = false;
-                        break;
-                    case 0b00001000:
-                        chkMiercoles.Checked = true;
-                        chkLunes.Checked = false;
-                        chkMartes.Checked = false;
-                        chkJueves.Checked = false;
-                        chkViernes.Checked = false;
-                        break;
-                    case 0b00000100:
-                        chkJueves.Checked = true;
-                        chkLunes.Checked = false;
-                        chkMartes.Checked = false;
-                        chkMiercoles.Checked = false;
-                        chkViernes.Checked = false;
-                        break;
-                    case 0b00000010:
-                        chkViernes.Checked = true;
-                        chkLunes.Checked = false;
-                        chkMartes.Checked = false;
-                        chkMiercoles.Checked = false;
-                        chkJueves.Checked = false;
-                        break;
-                    default:
-                        chkLunes.Checked = false;
-                        chkMartes.Checked = false;
-                        chkMiercoles.Checked = false;
-                        chkJueves.Checked = false;
-                        chkViernes.Checked = false;
-                        break;
-                }
+                // Manejo de errores generales durante la operación
+                MessageBox.Show("Error: " + ex.Message, "ERROR");
             }
         }
 
         private void btnNumConsultas_Click(object sender, EventArgs e)
         {
-            String mensaje = "hola";
-            
-            Pedido pedido = new Pedido
+            try
             {
-                Comando = "CONTADOR",
-                Parametros = new[] { mensaje }
-            };
+                // Envía el comando para obtener el número de consultas realizadas
+                var respuesta = protocolo.HazOperacion("CONTADOR", new string[0]);
 
-            Respuesta respuesta = HazOperacion(pedido);
-            if (respuesta == null)
-            {
-                MessageBox.Show("Hubo un error", "ERROR");
-                return;
+                // Muestra el número de consultas realizadas
+                MessageBox.Show($"Número de consultas: {respuesta.Mensaje}", "INFORMACIÓN");
             }
-
-            if (respuesta.Estado == "NOK")
+            catch (Exception ex)
             {
-                MessageBox.Show("Error en la solicitud.", "ERROR");
-
-            }
-            else
-            {
-                var partes = respuesta.Mensaje.Split(' ');
-                MessageBox.Show("El número de pedidos recibidos en este cliente es " + partes[0],
-                    "INFORMACIÓN");
+                // Manejo de errores generales durante la operación
+                MessageBox.Show("Error: " + ex.Message, "ERROR");
             }
         }
 
         private void FrmValidador_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (flujo != null)
-                flujo.Close();
-            if (remoto != null)
-                if (remoto.Connected)
-                    remoto.Close();
+            // Cierra el flujo y la conexión TCP al cerrar el formulario
+            flujo?.Close();
+            remoto?.Close();
         }
     }
 }
